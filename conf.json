@@ -1,0 +1,24 @@
+{
+  "input": "test.c",
+  "output": "out.json",
+
+  "analysis": {
+    "max_loop_depth": 4,
+    "analyze_dependencies": true,
+    "analyze_scev": true
+  },
+
+  "output_format": "json",
+
+  "debug": {
+    "verbose": true,
+    "dump_loops": false,
+    "dump_scev": false,
+    "dump_memory": false
+  },
+
+  "features": {
+    "enable_fingerprint": true,
+    "enable_classification": true
+  }
+}
