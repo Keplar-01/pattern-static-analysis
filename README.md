@@ -274,170 +274,20 @@ docker run --rm -v /path/to/files:/work analyzer conf.json -i /work/source.c --s
 
 Информационные сообщения (`Analysis finished`, `Patterns found: N`) всегда идут в stderr и не мешают парсингу JSON из stdout.
 
-## 10. Интеграция с Go-воркером
+### Docker-образ
 
-### Рекомендованная архитектура
+Образ доступен на Docker Hub:
 
-```
-Kafka → Go Worker → exec.Command("analyzer") → JSON → ClickHouse
-                ↕                                    ↕
-              MinIO (файлы .c)              API (результаты)
+```bash
+docker pull keplar01/pattern-static-analysis:latest
 ```
 
-**Вариант A — бинарник внутри контейнера воркера** (рекомендуемый):
+Запуск из готового образа:
 
-Go worker и analyzer в одном Docker-образе. Go вызывает бинарник как subprocess через `exec.Command`. Самый простой вариант — минимальная задержка, нет сетевого overhead.
+```bash
+# stdout-режим
+docker run --rm -v $(pwd):/work keplar01/pattern-static-analysis:latest conf.json --stdout
 
-**Вариант B — отдельный контейнер** (микросервис):
-
-Analyzer запускается отдельно с HTTP/gRPC обёрткой. Go worker отправляет `.c`-файл, получает JSON. Подходит если нужно масштабировать анализатор отдельно от воркера.
-
-### Вариант A: бинарник в образе Go-воркера
-
-Dockerfile воркера:
-
-```dockerfile
-# Берём готовый бинарник из образа analyzer
-FROM analyzer:latest AS analyzer-bin
-
-FROM golang:1.22-bookworm AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -o worker ./cmd/worker
-
-FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang-16 libzstd1 zlib1g libtinfo6 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=analyzer-bin /usr/local/bin/analyzer /usr/local/bin/analyzer
-COPY --from=builder /app/worker /usr/local/bin/worker
-
-ENTRYPOINT ["worker"]
-```
-
-### Пример Go-кода вызова анализатора
-
-```go
-package analyzer
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-)
-
-type AnalyzerConfig struct {
-	Input  string `json:"input"`
-	Output string `json:"output"`
-	Analysis struct {
-		MaxLoopDepth        int  `json:"max_loop_depth"`
-		AnalyzeDependencies bool `json:"analyze_dependencies"`
-		AnalyzeScev         bool `json:"analyze_scev"`
-	} `json:"analysis"`
-	OutputFormat string `json:"output_format"`
-	Debug        struct {
-		Verbose bool `json:"verbose"`
-	} `json:"debug"`
-	Features struct {
-		EnableFingerprint      bool `json:"enable_fingerprint"`
-		EnableClassification   bool `json:"enable_classification"`
-	} `json:"features"`
-}
-
-type AccessPattern struct {
-	Function             string   `json:"function"`
-	Depth                int      `json:"depth"`
-	AccessKind           string   `json:"access_kind"`
-	BaseSymbol           string   `json:"base_symbol"`
-	BaseKind             string   `json:"base_kind"`
-	IndexedByMemory      bool     `json:"indexed_by_memory"`
-	HasIndexedAddressing bool     `json:"has_indexed_addressing"`
-	LoadCount            int      `json:"load_count"`
-	StoreCount           int      `json:"store_count"`
-	Affine               bool     `json:"affine"`
-	Conditional          bool     `json:"conditional"`
-	FillFactor           float64  `json:"fill_factor"`
-	WorkingSetBytes      int64    `json:"working_set_bytes"`
-	Dependence           string   `json:"dependence"`
-	PatternType          string   `json:"pattern_type"`
-	PatternSignature     string   `json:"pattern_signature"`
-	SourceFile           *string  `json:"source_file"`
-	SourceLine           *int     `json:"source_line"`
-	SourceColumn         *int     `json:"source_column"`
-	Stride               *int64   `json:"stride"`
-	ContiguousBlock      *int64   `json:"contiguous_block"`
-	Alignment            *int     `json:"alignment"`
-}
-
-// RunAnalysis скачивает .c файл, запускает анализатор и возвращает результат.
-func RunAnalysis(ctx context.Context, sourceCode []byte, filename string) ([]AccessPattern, error) {
-	workDir, err := os.MkdirTemp("", "analyzer-*")
-	if err != nil {
-		return nil, fmt.Errorf("create workdir: %w", err)
-	}
-	defer os.RemoveAll(workDir)
-
-	// Записать исходник
-	srcPath := filepath.Join(workDir, filename)
-	if err := os.WriteFile(srcPath, sourceCode, 0600); err != nil {
-		return nil, fmt.Errorf("write source: %w", err)
-	}
-
-	// Сгенерировать conf.json
-	cfg := AnalyzerConfig{
-		Input:        filename,
-		Output:       "out.json",
-		OutputFormat: "json",
-	}
-	cfg.Analysis.MaxLoopDepth = 4
-	cfg.Analysis.AnalyzeDependencies = true
-	cfg.Analysis.AnalyzeScev = true
-	cfg.Features.EnableFingerprint = true
-	cfg.Features.EnableClassification = true
-
-	confData, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("marshal config: %w", err)
-	}
-	confPath := filepath.Join(workDir, "conf.json")
-	if err := os.WriteFile(confPath, confData, 0600); err != nil {
-		return nil, fmt.Errorf("write config: %w", err)
-	}
-
-	// Запустить анализатор
-	cmd := exec.CommandContext(ctx, "analyzer", "conf.json", "--stdout", "-q")
-	cmd.Dir = workDir
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("analyzer failed: %s", string(exitErr.Stderr))
-		}
-		return nil, fmt.Errorf("run analyzer: %w", err)
-	}
-
-	// Распарсить результат
-	var patterns []AccessPattern
-	if err := json.Unmarshal(output, &patterns); err != nil {
-		return nil, fmt.Errorf("parse output: %w", err)
-	}
-
-	return patterns, nil
-}
-```
-
-### Поток данных в воркере
-
-```
-1. Kafka consumer получает сообщение {file_id, minio_path}
-2. Go worker скачивает .c файл из MinIO → []byte
-3. RunAnalysis(ctx, sourceCode, "input.c") → []AccessPattern
-4. Вариант A: INSERT INTO clickhouse (patterns...)
-   Вариант B: Отправить JSON обратно через Kafka/HTTP API
-5. ACK сообщения в Kafka
+# файловый режим
+docker run --rm -v $(pwd):/work keplar01/pattern-static-analysis:latest conf.json -o /work/result.json
 ```
