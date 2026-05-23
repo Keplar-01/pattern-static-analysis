@@ -29,6 +29,7 @@ struct AccessPatternResult {
     double fillFactor = 0.0;
 
     bool multidim = false;
+    bool hasKnownWorkingSet = false;
     long long workingSetBytes = 0;
     long long alignmentBytes = 0;
 

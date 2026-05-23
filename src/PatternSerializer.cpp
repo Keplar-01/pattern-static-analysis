@@ -30,11 +30,11 @@ void PatternSerializer::writeJson(const std::string& outputPath,
         obj["affine"] = pattern.affine;
         obj["conditional"] = pattern.conditional;
         obj["fill_factor"] = pattern.fillFactor;
+        obj["working_set_known"] = pattern.hasKnownWorkingSet;
         obj["working_set_bytes"] = pattern.workingSetBytes;
         obj["dependence"] = pattern.dependence;
         obj["pattern_fingerprint"] = pattern.patternSignature;
         obj["pattern_type"] = toString(pattern.patternType);
-        obj["pattern_signature"] = pattern.patternSignature;
         if (!pattern.sourceFile.empty()) {
             obj["source_file"] = pattern.sourceFile;
         } else {

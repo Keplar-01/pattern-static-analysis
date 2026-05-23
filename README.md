@@ -129,6 +129,7 @@ Pipeline:
 | `contiguous_block` | int/null | Оценка длины непрерывного блока элементов | `stride=0` → 1 (broadcast); `stride=1` → trip_count (или null); `stride>1` → `⌊cache_line / (elem_size × stride)⌋` |
 | `fill_factor` | float | Плотность использования данных в cache-line, от 0 до 1 | `min(1, 1/abs(stride))`. Для conditional доступов домножается на 0.5 |
 | `alignment` | int/null | Выравнивание доступа в байтах (из IR-атрибутов load/store) | `LoadInst.getAlign()` / `StoreInst.getAlign()` |
+| `working_set_known` | bool | Удалось ли статически подтвердить рабочий объём | `true`, если известен trip count и вычислен `working_set_bytes`; `false`, если объём неизвестен |
 | `working_set_bytes` | int | Статическая оценка рабочего объёма данных в байтах | `abs(stride) × trip_count × sizeof(element)`. Broadcast → sizeof(element). 0 если trip count неизвестен |
 
 ### 6.4. Анализ зависимостей
@@ -141,9 +142,11 @@ Pipeline:
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `pattern_signature` | string | Канонический fingerprint паттерна; нормализованный отпечаток вида `k=load\|p=unit_stride\|s=1\|a=1\|c=0\|m=0\|im=0\|ia=1` |
+| `pattern_signature` | string | Канонический fingerprint паттерна; нормализованный отпечаток вида `k=load\|p=unit_stride\|s=1\|a=1\|c=0\|m=0\|im=0\|ia=1\|wk=1\|ws=640` |
 | `pattern_fingerprint` | string | Технический alias значения `pattern_signature` для интеграции с Go-сервисами и JOIN с динамическими метриками |
 | `pattern_type` | string | Итоговая классификация (см. раздел 5) |
+
+`wk` в fingerprint показывает, известен ли рабочий объём (`1` — известен, `0` — неизвестен). Если рабочий объём неизвестен, в fingerprint записывается `ws=na`, а не `ws=0`, чтобы не трактовать неизвестное значение как подтверждённо нулевое.
 
 ### 6.6. Как интерпретировать значения
 
@@ -172,6 +175,7 @@ Pipeline:
   "stride": 1,
   "affine": true,
   "fill_factor": 1.0,
+  "working_set_known": true,
   "conditional": false,
   "indexed_by_memory": false
 }
@@ -184,6 +188,7 @@ Pipeline:
   "stride": 2,
   "affine": true,
   "fill_factor": 0.5,
+  "working_set_known": true,
   "contiguous_block": 8
 }
 ```
@@ -196,6 +201,7 @@ Pipeline:
   "stride": null,
   "affine": false,
   "indexed_by_memory": true,
+  "working_set_known": false,
   "fill_factor": 0.0
 }
 ```
@@ -207,6 +213,7 @@ Pipeline:
   "stride": 0,
   "affine": true,
   "fill_factor": 1.0,
+  "working_set_known": true,
   "contiguous_block": 1
 }
 ```
@@ -218,6 +225,7 @@ Pipeline:
   "stride": 1,
   "affine": true,
   "fill_factor": 1.0,
+  "working_set_known": true,
   "depth": 4
 }
 ```
@@ -229,13 +237,14 @@ Pipeline:
   "stride": 1,
   "affine": true,
   "conditional": true,
+  "working_set_known": true,
   "fill_factor": 0.5
 }
 ```
 
 ## 8. Ограничения
 
-- **working_set_bytes = 0** для циклов с символическими границами (параметр `n` вместо констант). Оценка возможна только при известном trip count на этапе компиляции.
+- **working_set_known = false** для циклов с символическими границами (параметр `n` вместо констант). В этом случае `working_set_bytes` остаётся `0`, но это означает «не удалось оценить», а не подтверждённо нулевой рабочий объём.
 - **contiguous_block = null** для unit_stride с неизвестным trip count — нельзя статически определить длину непрерывного блока.
 - **dependence = unknown** при aliasing между указателями-аргументами (компилятор не может доказать отсутствие перекрытия без `restrict`).
 - Анализатор работает с `-O0` IR после `mem2reg` промоции. Оптимизированный IR (`-O2`) может давать отличающиеся результаты из-за loop rotation, unrolling и т.д.

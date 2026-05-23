@@ -120,7 +120,8 @@ void promoteAllocasToSSA(llvm::Function& function) {
 
 AnalysisResult PatternExtractor::extractFromIR(const std::string& inputPath,
                                                int maxLoopDepth,
-                                               const std::string& sourceFilterPath) const {
+                                               const std::string& sourceFilterPath,
+                                               int cacheLineBytes) const {
     llvm::LLVMContext context;
     llvm::SMDiagnostic error;
     std::unique_ptr<llvm::Module> module = llvm::parseIRFile(inputPath, error, context);
@@ -199,7 +200,8 @@ AnalysisResult PatternExtractor::extractFromIR(const std::string& inputPath,
                     scevAnalyzer.analyze(*loopContext.loop,
                                          scalarEvolution,
                                          module->getDataLayout(),
-                                         singleAccess);
+                                         singleAccess,
+                                         cacheLineBytes);
 
                 pattern.affine = scevFeatures.affine;
                 pattern.hasKnownStride = scevFeatures.hasKnownStride;
@@ -207,6 +209,7 @@ AnalysisResult PatternExtractor::extractFromIR(const std::string& inputPath,
                 pattern.contiguousBlockElements = scevFeatures.contiguousBlockElements;
                 pattern.fillFactor = scevFeatures.fillFactor;
                 pattern.multidim = scevFeatures.multidim;
+                pattern.hasKnownWorkingSet = scevFeatures.hasKnownWorkingSet;
                 pattern.workingSetBytes = scevFeatures.workingSetBytes;
 
                 // Adjust fill factor for conditional accesses:

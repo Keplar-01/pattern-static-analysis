@@ -208,7 +208,8 @@ long long ScevAnalyzer::getLinearCoeff(const llvm::Value* value,
 ScevFeatures ScevAnalyzer::analyze(const llvm::Loop& loop,
                                    llvm::ScalarEvolution& scalarEvolution,
                                    const llvm::DataLayout& dataLayout,
-                                   const std::vector<const llvm::Instruction*>& accesses) const {
+                                   const std::vector<const llvm::Instruction*>& accesses,
+                                   int cacheLineBytes) const {
     ScevFeatures features;
     features.affine = !accesses.empty();
 
@@ -242,7 +243,6 @@ ScevFeatures ScevAnalyzer::analyze(const llvm::Loop& loop,
             bodyIterations = static_cast<unsigned>(btc.getZExtValue());
         }
     }
-    const long long cacheLineBytes = 64;
     llvm::SmallPtrSet<const llvm::PHINode*, 8> usedIVs;
     std::unordered_map<const llvm::AllocaInst*, long long> allocaSteps;
 
@@ -413,6 +413,7 @@ ScevFeatures ScevAnalyzer::analyze(const llvm::Loop& loop,
                         elemSize;
             }
             if (bytes > features.workingSetBytes) {
+                features.hasKnownWorkingSet = true;
                 features.workingSetBytes = bytes;
             }
         }

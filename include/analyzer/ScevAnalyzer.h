@@ -22,6 +22,7 @@ struct ScevFeatures {
     long long contiguousBlockElements = 0;
     double fillFactor = 0.0;
     bool multidim = false;
+    bool hasKnownWorkingSet = false;
     long long workingSetBytes = 0;
 };
 
@@ -30,7 +31,8 @@ public:
     ScevFeatures analyze(const llvm::Loop& loop,
                          llvm::ScalarEvolution& scalarEvolution,
                          const llvm::DataLayout& dataLayout,
-                         const std::vector<const llvm::Instruction*>& accesses) const;
+                         const std::vector<const llvm::Instruction*>& accesses,
+                         int cacheLineBytes) const;
 
 private:
     long long getLinearCoeff(const llvm::Value* value,
