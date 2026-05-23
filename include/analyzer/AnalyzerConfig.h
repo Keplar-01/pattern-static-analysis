@@ -14,6 +14,7 @@ struct AnalyzerConfig {
     std::string outputFile;
 
     int maxLoopDepth = 4;
+    int cacheLineBytes = 64;
     bool analyzeDependencies = true;
     bool analyzeScev = true;
 

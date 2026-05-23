@@ -65,8 +65,13 @@ AnalyzerConfig AnalyzerConfig::fromJsonFile(const std::string& path) {
 
     if (const auto* analysis = getObject(*root, "analysis")) {
         assignIfPresent(*analysis, "max_loop_depth", config.maxLoopDepth);
+        assignIfPresent(*analysis, "cache_line_bytes", config.cacheLineBytes);
         assignIfPresent(*analysis, "analyze_dependencies", config.analyzeDependencies);
         assignIfPresent(*analysis, "analyze_scev", config.analyzeScev);
+    }
+
+    if (config.cacheLineBytes <= 0) {
+        throw std::runtime_error("analysis.cache_line_bytes must be > 0");
     }
 
     if (auto format = root->getString("output_format")) {

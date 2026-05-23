@@ -14,6 +14,13 @@ PatternType PatternClassifier::classify(const AccessPatternResult& pattern) cons
         return PatternType::Indirect;
     }
 
+    // stride == 0 means the access is loop-invariant (same address every
+    // iteration) and should be classified as broadcast even if the address
+    // expression references outer-loop IVs.
+    if (pattern.hasKnownStride && pattern.strideElements == 0) {
+        return PatternType::Broadcast;
+    }
+
     if (pattern.multidim && pattern.affine) {
         return PatternType::MultidimAffine;
     }
@@ -24,12 +31,6 @@ PatternType PatternClassifier::classify(const AccessPatternResult& pattern) cons
 
     if (pattern.hasKnownStride && std::llabs(pattern.strideElements) > 1) {
         return PatternType::ConstantStride;
-    }
-
-    // stride == 0 means the access is loop-invariant (same address every
-    // iteration) — a broadcast pattern.
-    if (pattern.hasKnownStride && pattern.strideElements == 0) {
-        return PatternType::Broadcast;
     }
 
     return PatternType::Unknown;

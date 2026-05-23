@@ -58,6 +58,8 @@ void applyCliOverrides(analyzer::AnalyzerConfig& config, int argc, char** argv) 
             config.inputFile = argv[++i];
         } else if ((arg == "--output" || arg == "-o") && i + 1 < argc) {
             config.outputFile = argv[++i];
+        } else if (arg == "--cache-line-bytes" && i + 1 < argc) {
+            config.cacheLineBytes = std::stoi(argv[++i]);
         } else if (arg == "--stdout") {
             config.outputFile = "-";
         } else if (arg == "--quiet" || arg == "-q") {
@@ -78,7 +80,10 @@ int main(int argc, char** argv) {
             endsWith(config.inputFile, ".c") ? config.inputFile : "";
         const analyzer::PatternExtractor extractor;
         const analyzer::AnalysisResult result =
-            extractor.extractFromIR(analysisInput, config.maxLoopDepth, sourceFilterPath);
+            extractor.extractFromIR(analysisInput,
+                                    config.maxLoopDepth,
+                                    sourceFilterPath,
+                                    config.cacheLineBytes);
 
         const analyzer::PatternSerializer serializer;
         serializer.writeJson(config.outputFile, result);

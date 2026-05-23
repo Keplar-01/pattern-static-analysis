@@ -1,9 +1,12 @@
 #include "analyzer/MemoryAccessAnalyzer.h"
 
 #include <llvm/ADT/SmallPtrSet.h>
+#include <llvm/IR/DebugInfo.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/Alignment.h>
@@ -58,6 +61,9 @@ bool MemoryAccessAnalyzer::isConditionallyExecuted(const llvm::Instruction& inst
         if (!loop.contains(pred) || pred == loop.getHeader()) {
             continue;
         }
+        if (isInsideNestedSubloop(loop, pred)) {
+            continue;
+        }
 
         const auto* branch = llvm::dyn_cast<llvm::BranchInst>(pred->getTerminator());
         if (!branch || !branch->isConditional()) {
@@ -96,6 +102,27 @@ const llvm::Value* getNormalizedBase(const llvm::Value* ptr) {
     return base;
 }
 
+std::string getSourceVariableName(const llvm::Value* value) {
+    if (!value) {
+        return "";
+    }
+
+    llvm::SmallVector<llvm::DbgVariableIntrinsic*, 4> dbgUsers;
+    llvm::findDbgUsers(dbgUsers, const_cast<llvm::Value*>(value));
+    for (const llvm::DbgVariableIntrinsic* dbgUser : dbgUsers) {
+        const llvm::DILocalVariable* variable = dbgUser->getVariable();
+        if (!variable) {
+            continue;
+        }
+        const llvm::StringRef name = variable->getName();
+        if (!name.empty()) {
+            return name.str();
+        }
+    }
+
+    return "";
+}
+
 bool shouldIncludeAccess(const std::string& baseKind, bool hasIndexedAddressing) {
     (void)baseKind;
     (void)hasIndexedAddressing;
@@ -104,6 +131,10 @@ bool shouldIncludeAccess(const std::string& baseKind, bool hasIndexedAddressing)
 
 std::string MemoryAccessAnalyzer::detectBaseSymbol(const llvm::Value* ptr) const {
     const llvm::Value* base = getNormalizedBase(ptr);
+
+    if (const std::string debugName = getSourceVariableName(base); !debugName.empty()) {
+        return debugName;
+    }
 
     if (const auto* global = llvm::dyn_cast<llvm::GlobalValue>(base)) {
         const std::string name = std::string(global->getName());
@@ -155,6 +186,10 @@ std::string MemoryAccessAnalyzer::detectBaseKind(const llvm::Value* ptr) const {
 
     if (llvm::isa<llvm::AllocaInst>(base)) {
         return "stack_pointer";
+    }
+
+    if (!getSourceVariableName(base).empty()) {
+        return "local_pointer";
     }
 
     return "other";

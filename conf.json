@@ -4,6 +4,7 @@
 
   "analysis": {
     "max_loop_depth": 4,
+    "cache_line_bytes": 64,
     "analyze_dependencies": true,
     "analyze_scev": true
   },

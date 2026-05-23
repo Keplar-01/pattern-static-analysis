@@ -10,7 +10,8 @@ class PatternExtractor {
 public:
     AnalysisResult extractFromIR(const std::string& inputPath,
                                  int maxLoopDepth,
-                                 const std::string& sourceFilterPath = "") const;
+                                 const std::string& sourceFilterPath = "",
+                                 int cacheLineBytes = 64) const;
 };
 
 }  // namespace analyzer
